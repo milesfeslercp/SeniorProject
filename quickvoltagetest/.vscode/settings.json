@@ -1,0 +1,16 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPathWin": "C:\\Users\\miles\\esp\\v5.2\\esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32-wrover-kit-3.3v.cfg"
+    ],
+    "idf.toolsPathWin": "C:\\Users\\miles\\.espressif",
+    "idf.portWin": "COM9",
+    "idf.flashType": "UART",
+    "files.associations": {
+        "esp_log.h": "c",
+        "queue.h": "c",
+        "esp_http_client.h": "c",
+        "time.h": "c"
+    }
+}
