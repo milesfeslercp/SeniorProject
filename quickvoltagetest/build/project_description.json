@@ -1,7 +1,7 @@
 {
     "version":            "1.1",
     "project_name":       "quickvoltagetest",
-    "project_version":    "1",
+    "project_version":    "75de469-dirty",
     "project_path":       "C:/Users/miles/Documents/SeniorProject/quickvoltagetest",
     "idf_path":           "C:/Users/miles/esp/v5.2/esp-idf",
     "build_dir":          "C:/Users/miles/Documents/SeniorProject/quickvoltagetest/build",

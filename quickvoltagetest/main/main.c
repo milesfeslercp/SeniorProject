@@ -17,7 +17,7 @@
 #include <sys/time.h>
 #include "soc/rtc_cntl_reg.h"
 #include "soc/soc.h"
-
+#include "cert.h"
 // Wi-Fi Configuration
 #define WIFI_SSID "TheresASharkInTheWaterV2"
 #define WIFI_PASSWORD "BOOBSboobsBOOBS"
@@ -47,9 +47,9 @@
 #define FLOW_SENSOR_GPIO GPIO_NUM_4
 #define CALIBRATION_FACTOR 450
 
-// Firestore Configuration
-#define FIRESTORE_URL "https://firestore.googleapis.com/v1/projects/esp32pumpdata/databases/(default)/documents/sensor_collection_2"
-#define FIRESTORE_API_KEY "AIzaSyD9rubGXDefcRikHpPy8hnF95DKDbtdLHQ"
+// Supabase Config
+#define SUPABASE_URL    "https://lifjfhshfaekvaadiyvr.supabase.co/rest/v1/table_data_1"
+#define SUPABASE_KEY    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZmpmaHNoZmFla3ZhYWRpeXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ1NzkzMDUsImV4cCI6MjA2MDE1NTMwNX0.yiZyY73CHndB8DdLUrQrvHu9oyF-x-__gQBX7ktP5E0"
 
 // Logging Tags
 static const char *TAG = "Main";
@@ -118,21 +118,21 @@ static esp_err_t ina260_write_register(uint8_t reg, uint16_t value)
     return i2c_master_write_to_device(I2C_MASTER_NUM, INA260_ADDR, data, sizeof(data), pdMS_TO_TICKS(1000));
 }
 
-    // Read from INA260 register
-    static esp_err_t ina260_read_register(uint8_t reg, uint16_t *value)
+// Read from INA260 register
+static esp_err_t ina260_read_register(uint8_t reg, uint16_t *value)
+{
+    uint8_t reg_addr = reg;
+    uint8_t data[2] = {0};
+
+    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, INA260_ADDR, &reg_addr, 1, data, 2, pdMS_TO_TICKS(1000));
+    if (ret != ESP_OK)
     {
-        uint8_t reg_addr = reg;
-        uint8_t data[2] = {0};
-
-        esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, INA260_ADDR, &reg_addr, 1, data, 2, pdMS_TO_TICKS(1000));
-        if (ret != ESP_OK)
-        {
-            return ret;
-        }
-
-        *value = (data[0] << 8) | data[1];
-        return ESP_OK;
+        return ret;
     }
+
+    *value = (data[0] << 8) | data[1];
+    return ESP_OK;
+}
 
 void wifi_init()
 {
@@ -275,11 +275,38 @@ void flow_sensor_task(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
+const char GTS_ROOT_R4_CERT[] = 
+"-----BEGIN CERTIFICATE-----\n"
+"MIICnzCCAiWgAwIBAgIQf/MZd5csIkp2FV0TttaF4zAKBggqhkjOPQQDAzBHMQsw\n"
+"CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU\n"
+"MBIGA1UEAxMLR1RTIFJvb3QgUjQwHhcNMjMxMjEzMDkwMDAwWhcNMjkwMjIwMTQw\n"
+"MDAwWjA7MQswCQYDVQQGEwJVUzEeMBwGA1UEChMVR29vZ2xlIFRydXN0IFNlcnZp\n"
+"Y2VzMQwwCgYDVQQDEwNXRTEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARvzTr+\n"
+"Z1dHTCEDhUDCR127WEcPQMFcF4XGGTfn1XzthkubgdnXGhOlCgP4mMTG6J7/EFmP\n"
+"LCaY9eYmJbsPAvpWo4H+MIH7MA4GA1UdDwEB/wQEAwIBhjAdBgNVHSUEFjAUBggr\n"
+"BgEFBQcDAQYIKwYBBQUHAwIwEgYDVR0TAQH/BAgwBgEB/wIBADAdBgNVHQ4EFgQU\n"
+"kHeSNWfE/6jMqeZ72YB5e8yT+TgwHwYDVR0jBBgwFoAUgEzW63T/STaj1dj8tT7F\n"
+"avCUHYwwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzAChhhodHRwOi8vaS5wa2ku\n"
+"Z29vZy9yNC5jcnQwKwYDVR0fBCQwIjAgoB6gHIYaaHR0cDovL2MucGtpLmdvb2cv\n"
+"ci9yNC5jcmwwEwYDVR0gBAwwCjAIBgZngQwBAgEwCgYIKoZIzj0EAwMDaAAwZQIx\n"
+"AOcCq1HW90OVznX+0RGU1cxAQXomvtgM8zItPZCuFQ8jSBJSjz5keROv9aYsAm5V\n"
+"sQIwJonMaAFi54mrfhfoFNZEfuNMSQ6/bIBiNLiyoX46FohQvKeIoJ99cx7sUkFN\n"
+"7uJW\n"
+"-----END CERTIFICATE-----\n";
 
-// Firebase Upload Task
-void firebase_task(void *pvParameters)
+
+
+
+
+// supabase Upload Task
+void supabase_task(void *pvParameters)
 {
     initialize_sntp(); // Synchronize the ESP32's clock
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET) {
+        ESP_LOGI(TAG, "Waiting for time sync...");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
 
     // Initialize NVS
     nvs_handle_t nvs_handle;
@@ -335,27 +362,27 @@ void firebase_task(void *pvParameters)
 
                 // Format post_data JSON string with sequential document number
                 snprintf(post_data, sizeof(post_data),
-                         "{\"fields\":{\"current_mA\":{\"doubleValue\":%.2f},\"flow_rate\":{\"doubleValue\":%.2f},\"time\":{\"stringValue\":\"%s\"},\"doc_number\":{\"integerValue\":%lu}}}",
-                         current, flow_rate, timestamp, doc_counter);
+                "{\"current_mA\": %.2f, \"flow_rate\": %.2f, \"time\": \"%s\", \"doc_number\": %lu}",
+                current, flow_rate, timestamp, doc_counter);
 
                 esp_http_client_config_t config = {
-                    .url = FIRESTORE_URL,
+                    .url = SUPABASE_URL,
                     .method = HTTP_METHOD_POST,
-                    .skip_cert_common_name_check = true,
-                    .cert_pem = NULL,
+                    .cert_pem = GTS_ROOT_R4_CERT,
                 };
                 esp_http_client_handle_t client = esp_http_client_init(&config);
                 esp_http_client_set_header(client, "Content-Type", "application/json");
+                esp_http_client_set_header(client, "apikey", SUPABASE_KEY);
+                esp_http_client_set_header(client, "Authorization", "Bearer " SUPABASE_KEY);
                 esp_http_client_set_post_field(client, post_data, strlen(post_data));
-
                 esp_err_t err = esp_http_client_perform(client);
                 if (err == ESP_OK)
                 {
-                    ESP_LOGI(TAG, "Data uploaded to Firestore, Document Number: %lu", doc_counter);
+                    ESP_LOGI(TAG, "Data uploaded to Supabase, Document Number: %lu", doc_counter);
                 }
                 else
                 {
-                    ESP_LOGE(TAG, "Failed to upload data to Firestore: %s", esp_err_to_name(err));
+                    ESP_LOGE(TAG, "Failed to upload data to Supabase: %s", esp_err_to_name(err));
                 }
                 esp_http_client_cleanup(client);
                 vTaskDelay(pdMS_TO_TICKS(10000));
@@ -388,6 +415,8 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     esp_log_level_set("esp-tls", ESP_LOG_VERBOSE);
     esp_log_level_set("esp-tls-mbedtls", ESP_LOG_VERBOSE);
+    esp_log_level_set("*", ESP_LOG_DEBUG);  // Set the log level to debug
+
     wifi_init();
 
     current_queue = xQueueCreate(10, sizeof(float));
@@ -395,7 +424,7 @@ void app_main(void)
 
     xTaskCreate(current_sensor_task, "Current Sensor Task", 4096, NULL, 5, NULL);
     xTaskCreate(flow_sensor_task, "Flow Sensor Task", 4096, NULL, 5, NULL);
-    xTaskCreate(firebase_task, "Firebase Task", 8192, NULL, 5, NULL);
+    xTaskCreate(supabase_task, "supabase Task", 8192, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "Tasks created. Scheduler started.");
 }
