@@ -18,6 +18,7 @@
 #include "soc/rtc_cntl_reg.h"
 #include "soc/soc.h"
 #include "cert.h"
+#include <math.h>
 // Wi-Fi Configuration
 #define WIFI_SSID "TheresASharkInTheWaterV2"
 #define WIFI_PASSWORD "BOOBSboobsBOOBS"
@@ -48,11 +49,19 @@
 #define CALIBRATION_FACTOR 450
 
 // Supabase Config
-#define SUPABASE_URL    "https://lifjfhshfaekvaadiyvr.supabase.co/rest/v1/table_data_1"
-#define SUPABASE_KEY    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZmpmaHNoZmFla3ZhYWRpeXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ1NzkzMDUsImV4cCI6MjA2MDE1NTMwNX0.yiZyY73CHndB8DdLUrQrvHu9oyF-x-__gQBX7ktP5E0"
+#define SUPABASE_URL "https://lifjfhshfaekvaadiyvr.supabase.co/rest/v1/table_data_4"
+#define SUPABASE_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZmpmaHNoZmFla3ZhYWRpeXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ1NzkzMDUsImV4cCI6MjA2MDE1NTMwNX0.yiZyY73CHndB8DdLUrQrvHu9oyF-x-__gQBX7ktP5E0"
 
 // Logging Tags
 static const char *TAG = "Main";
+
+// Audio Globals
+#include "esp_rom_sys.h"
+#include "driver/adc.h"
+#define AUDIO_BUFFER_SIZE 8000 // 8000 samples/sec for 1 second
+#define AUDIO_PIN GPIO_NUM_35
+uint16_t audio_buffer[AUDIO_BUFFER_SIZE];
+static uint8_t wav_buffer[AUDIO_BUFFER_SIZE * 2 + 44];
 
 // Global Variables
 volatile uint32_t pulse_count = 0;
@@ -90,49 +99,16 @@ static void IRAM_ATTR pulse_counter(void *arg)
     pulse_count++;
 }
 
-// I2C Master Initialization
-static esp_err_t i2c_master_init()
+void record_audio()
 {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    };
-
-    esp_err_t ret = i2c_param_config(I2C_MASTER_NUM, &conf);
-    if (ret != ESP_OK)
+    // Generate 1kHz test tone
+    for (int i = 0; i < AUDIO_BUFFER_SIZE; i++)
     {
-        return ret;
+        audio_buffer[i] = (uint16_t)(sin(2 * M_PI * 1000 * i / 8000) * 10000 + 20000);
     }
-
-    return i2c_driver_install(I2C_MASTER_NUM, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
 }
 
 // Write to INA260 register
-static esp_err_t ina260_write_register(uint8_t reg, uint16_t value)
-{
-    uint8_t data[3] = {reg, (uint8_t)(value >> 8), (uint8_t)(value & 0xFF)};
-    return i2c_master_write_to_device(I2C_MASTER_NUM, INA260_ADDR, data, sizeof(data), pdMS_TO_TICKS(1000));
-}
-
-// Read from INA260 register
-static esp_err_t ina260_read_register(uint8_t reg, uint16_t *value)
-{
-    uint8_t reg_addr = reg;
-    uint8_t data[2] = {0};
-
-    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, INA260_ADDR, &reg_addr, 1, data, 2, pdMS_TO_TICKS(1000));
-    if (ret != ESP_OK)
-    {
-        return ret;
-    }
-
-    *value = (data[0] << 8) | data[1];
-    return ESP_OK;
-}
 
 void wifi_init()
 {
@@ -275,38 +251,144 @@ void flow_sensor_task(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
-const char GTS_ROOT_R4_CERT[] = 
-"-----BEGIN CERTIFICATE-----\n"
-"MIICnzCCAiWgAwIBAgIQf/MZd5csIkp2FV0TttaF4zAKBggqhkjOPQQDAzBHMQsw\n"
-"CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU\n"
-"MBIGA1UEAxMLR1RTIFJvb3QgUjQwHhcNMjMxMjEzMDkwMDAwWhcNMjkwMjIwMTQw\n"
-"MDAwWjA7MQswCQYDVQQGEwJVUzEeMBwGA1UEChMVR29vZ2xlIFRydXN0IFNlcnZp\n"
-"Y2VzMQwwCgYDVQQDEwNXRTEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARvzTr+\n"
-"Z1dHTCEDhUDCR127WEcPQMFcF4XGGTfn1XzthkubgdnXGhOlCgP4mMTG6J7/EFmP\n"
-"LCaY9eYmJbsPAvpWo4H+MIH7MA4GA1UdDwEB/wQEAwIBhjAdBgNVHSUEFjAUBggr\n"
-"BgEFBQcDAQYIKwYBBQUHAwIwEgYDVR0TAQH/BAgwBgEB/wIBADAdBgNVHQ4EFgQU\n"
-"kHeSNWfE/6jMqeZ72YB5e8yT+TgwHwYDVR0jBBgwFoAUgEzW63T/STaj1dj8tT7F\n"
-"avCUHYwwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzAChhhodHRwOi8vaS5wa2ku\n"
-"Z29vZy9yNC5jcnQwKwYDVR0fBCQwIjAgoB6gHIYaaHR0cDovL2MucGtpLmdvb2cv\n"
-"ci9yNC5jcmwwEwYDVR0gBAwwCjAIBgZngQwBAgEwCgYIKoZIzj0EAwMDaAAwZQIx\n"
-"AOcCq1HW90OVznX+0RGU1cxAQXomvtgM8zItPZCuFQ8jSBJSjz5keROv9aYsAm5V\n"
-"sQIwJonMaAFi54mrfhfoFNZEfuNMSQ6/bIBiNLiyoX46FohQvKeIoJ99cx7sUkFN\n"
-"7uJW\n"
-"-----END CERTIFICATE-----\n";
+const char GTS_ROOT_R4_CERT[] =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIICnzCCAiWgAwIBAgIQf/MZd5csIkp2FV0TttaF4zAKBggqhkjOPQQDAzBHMQsw\n"
+    "CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU\n"
+    "MBIGA1UEAxMLR1RTIFJvb3QgUjQwHhcNMjMxMjEzMDkwMDAwWhcNMjkwMjIwMTQw\n"
+    "MDAwWjA7MQswCQYDVQQGEwJVUzEeMBwGA1UEChMVR29vZ2xlIFRydXN0IFNlcnZp\n"
+    "Y2VzMQwwCgYDVQQDEwNXRTEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARvzTr+\n"
+    "Z1dHTCEDhUDCR127WEcPQMFcF4XGGTfn1XzthkubgdnXGhOlCgP4mMTG6J7/EFmP\n"
+    "LCaY9eYmJbsPAvpWo4H+MIH7MA4GA1UdDwEB/wQEAwIBhjAdBgNVHSUEFjAUBggr\n"
+    "BgEFBQcDAQYIKwYBBQUHAwIwEgYDVR0TAQH/BAgwBgEB/wIBADAdBgNVHQ4EFgQU\n"
+    "kHeSNWfE/6jMqeZ72YB5e8yT+TgwHwYDVR0jBBgwFoAUgEzW63T/STaj1dj8tT7F\n"
+    "avCUHYwwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzAChhhodHRwOi8vaS5wa2ku\n"
+    "Z29vZy9yNC5jcnQwKwYDVR0fBCQwIjAgoB6gHIYaaHR0cDovL2MucGtpLmdvb2cv\n"
+    "ci9yNC5jcmwwEwYDVR0gBAwwCjAIBgZngQwBAgEwCgYIKoZIzj0EAwMDaAAwZQIx\n"
+    "AOcCq1HW90OVznX+0RGU1cxAQXomvtgM8zItPZCuFQ8jSBJSjz5keROv9aYsAm5V\n"
+    "sQIwJonMaAFi54mrfhfoFNZEfuNMSQ6/bIBiNLiyoX46FohQvKeIoJ99cx7sUkFN\n"
+    "7uJW\n"
+    "-----END CERTIFICATE-----\n";
 
+void convert_to_wav(uint16_t *pcm_buffer, size_t pcm_size, uint8_t *wav_buffer)
+{
+    // WAV header (44 bytes)
+    const uint8_t wav_header[44] = {
+        // RIFF header
+        'R', 'I', 'F', 'F',     // ChunkID
+        0x00, 0x00, 0x00, 0x00, // ChunkSize (filled later)
+        'W', 'A', 'V', 'E',     // Format
+        // fmt subchunk
+        'f', 'm', 't', ' ',     // Subchunk1ID
+        0x10, 0x00, 0x00, 0x00, // Subchunk1Size (16 for PCM)
+        0x01, 0x00,             // AudioFormat (1 = PCM)
+        0x01, 0x00,             // NumChannels (1 = mono)
+        0x80, 0x3E, 0x00, 0x00, // SampleRate (8000 Hz)
+        0x00, 0x7D, 0x00, 0x00, // ByteRate (16000 = 8000*2)
+        0x02, 0x00,             // BlockAlign (2 bytes per sample)
+        0x10, 0x00,             // BitsPerSample (16-bit)
+        // data subchunk
+        'd', 'a', 't', 'a',    // Subchunk2ID
+        0x00, 0x00, 0x00, 0x00 // Subchunk2Size (filled later)
+    };
 
+    // Copy header to output buffer
+    memcpy(wav_buffer, wav_header, 44);
 
+    // Fill in ChunkSize (file size - 8)
+    uint32_t chunk_size = pcm_size * 2 + 36; // PCM size + header - 8
+    memcpy(wav_buffer + 4, &chunk_size, 4);
 
+    // Fill in Subchunk2Size (PCM size)
+    uint32_t subchunk2_size = pcm_size * 2; // 16-bit = 2 bytes per sample
+    memcpy(wav_buffer + 40, &subchunk2_size, 4);
 
+    // Convert 16-bit PCM to bytes and append after header
+    for (size_t i = 0; i < pcm_size; i++)
+    {
+        wav_buffer[44 + 2 * i] = pcm_buffer[i] & 0xFF;            // Low byte
+        wav_buffer[44 + 2 * i + 1] = (pcm_buffer[i] >> 8) & 0xFF; // High byte
+    }
+}
+
+esp_err_t upload_audio_to_supabase(uint32_t doc_number, char *audio_url_out, size_t max_url_len)
+{
+    char filename[64];
+    snprintf(filename, sizeof(filename), "clip_%lu.wav", doc_number);
+
+    // Ensure storage_url buffer is large enough (256+)
+    char storage_url[256];
+    snprintf(storage_url, sizeof(storage_url),
+             "https://lifjfhshfaekvaadiyvr.supabase.co/storage/v1/object/audio-clips/%s?upsert=true",
+             filename);
+
+    ESP_LOGI(TAG, "Upload URL: %s", storage_url); // Debug log
+
+    esp_http_client_config_t config = {
+        .url = storage_url,
+        .method = HTTP_METHOD_PUT,
+        .cert_pem = GTS_ROOT_R4_CERT,
+        .buffer_size = 8192,
+    };
+    convert_to_wav(audio_buffer, AUDIO_BUFFER_SIZE, wav_buffer);
+
+    // Upload the WAV instead of raw PCM
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Authorization", "Bearer " SUPABASE_KEY);
+    esp_http_client_set_header(client, "Content-Type", "audio/wav"); // or "audio/x-wav"
+    esp_http_client_set_header(client, "apikey", SUPABASE_KEY);
+
+    size_t wav_size = AUDIO_BUFFER_SIZE * 2 + 44;
+    char content_length[16];
+    snprintf(content_length, sizeof(content_length), "%d", wav_size);
+    esp_http_client_set_header(client, "Content-Length", content_length);
+    esp_http_client_set_post_field(client, (const char *)wav_buffer, wav_size);
+    ESP_LOGI(TAG, "Uploading audio file: %s (%d bytes)", filename, sizeof(wav_buffer));
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK)
+    {
+        esp_err_t err = esp_http_client_perform(client);
+        int status = esp_http_client_get_status_code(client);
+        ESP_LOGI(TAG, "HTTP Status: %d", status);
+
+        int content_len = esp_http_client_get_content_length(client);
+        ESP_LOGI(TAG, "Content Length: %d", content_len);
+        if (content_len > 0)
+        {
+            char *response = malloc(content_len + 1);
+            esp_http_client_read(client, response, content_len);
+            response[content_len] = '\0';
+            ESP_LOGI(TAG, "Response Body: %s", response);
+            free(response);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Upload failed: %s", esp_err_to_name(err));
+    }
+    esp_http_client_cleanup(client);
+
+    if (err == ESP_OK)
+    {
+        snprintf(audio_url_out, max_url_len,
+                 "https://lifjfhshfaekvaadiyvr.supabase.co/storage/v1/object/public/audio-clips/%s", filename);
+        return ESP_OK;
+    }
+    else
+    {
+        return err;
+    }
+}
 // supabase Upload Task
 void supabase_task(void *pvParameters)
 {
     initialize_sntp(); // Synchronize the ESP32's clock
-    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET) {
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET)
+    {
         ESP_LOGI(TAG, "Waiting for time sync...");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
 
     // Initialize NVS
     nvs_handle_t nvs_handle;
@@ -336,7 +418,7 @@ void supabase_task(void *pvParameters)
             if (xQueueReceive(flow_queue, &flow_rate, pdMS_TO_TICKS(1000)))
             {
                 ESP_LOGI(TAG, "Got both values - proceeding with upload");
-                char post_data[256];
+                char post_data[1024];
                 struct timeval tv;
                 gettimeofday(&tv, NULL);
 
@@ -361,14 +443,29 @@ void supabase_task(void *pvParameters)
                 nvs_commit(nvs_handle);
 
                 // Format post_data JSON string with sequential document number
+                //record_audio();
+
+                // char audio_url[256];
+                // esp_err_t audio_err = upload_audio_to_supabase(doc_counter, audio_url, sizeof(audio_url));
+                // if (audio_err != ESP_OK)
+                // {
+                //     ESP_LOGE(TAG, "Audio upload failed: %s", esp_err_to_name(audio_err));
+                //     snprintf(audio_url, sizeof(audio_url), "upload_failed");
+                // }
+
+                // snprintf(post_data, sizeof(post_data),
+                //          "{\"current_mA\": %.2f, \"flow_rate\": %.2f, \"time\": \"%s\", \"doc_number\": %lu, \"audio_url\": \"%s\"}",
+                //          current, flow_rate, timestamp, doc_counter, audio_url);
+
                 snprintf(post_data, sizeof(post_data),
-                "{\"current_mA\": %.2f, \"flow_rate\": %.2f, \"time\": \"%s\", \"doc_number\": %lu}",
-                current, flow_rate, timestamp, doc_counter);
+                         "{\"current_mA\": %.2f, \"flow_rate\": %.2f, \"time\": \"%s\", \"doc_number\": %lu}",
+                         current, flow_rate, timestamp, doc_counter);
 
                 esp_http_client_config_t config = {
                     .url = SUPABASE_URL,
                     .method = HTTP_METHOD_POST,
                     .cert_pem = GTS_ROOT_R4_CERT,
+                    .buffer_size = 8192,
                 };
                 esp_http_client_handle_t client = esp_http_client_init(&config);
                 esp_http_client_set_header(client, "Content-Type", "application/json");
@@ -415,7 +512,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     esp_log_level_set("esp-tls", ESP_LOG_VERBOSE);
     esp_log_level_set("esp-tls-mbedtls", ESP_LOG_VERBOSE);
-    esp_log_level_set("*", ESP_LOG_DEBUG);  // Set the log level to debug
+    esp_log_level_set("*", ESP_LOG_DEBUG); // Set the log level to debug
 
     wifi_init();
 
